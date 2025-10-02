@@ -456,15 +456,15 @@ def create_chrome_driver(thread_id=0):
         """Create fresh Chrome options to avoid reuse errors"""
         options = ChromeOptions()
         options.add_argument('--window-size=1920,1080')
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_argument('--disable-dev-shm-usage')
+        #options.add_argument('--disable-blink-features=AutomationControlled')
+        #options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--no-sandbox')
         #options.add_argument('--headless')
         options.add_argument('--disable-gpu')
         options.add_argument('--disable-extensions')
-        options.add_argument('--disable-plugins')
-        options.add_argument('--disable-images')
-        options.add_argument('--disable-javascript')
+        #options.add_argument('--disable-plugins')
+        #options.add_argument('--disable-images')
+        #options.add_argument('--disable-javascript')
         # Use Windows-compatible temp directory path
         temp_profile = f"C:\\temp\\chrome_profile_{thread_id}_{suffix}_{int(time.time())}"
         options.add_argument(f'--user-data-dir={temp_profile}')
