@@ -303,7 +303,7 @@ def scrape_data(url, driver, wait):
 
 def main():
     # Check if the input CSV file exists
-    input_filename = 'stationery_chennai.csv'
+    input_filename = 'Delhi_coaching.csv'
     if not os.path.exists(input_filename):
         print(f"Error: Input file '{input_filename}' not found!")
         print("Please make sure you have run the Google_Maps.py script first to generate the master CSV file.")
@@ -325,7 +325,7 @@ def main():
         return
 
     # Setup output file for real-time incremental writing
-    output_filename = 'stationery_shops_chennai_master_output.csv'
+    output_filename = 'Delhi_coaching_output.csv'
 
     # Check if output file already exists to determine if we need to write header
     file_exists = os.path.exists(output_filename)
@@ -350,7 +350,7 @@ def process_urls_multithreaded(urls, output_filename, file_exists):
     Process URLs using multithreading for improved performance
     """
     # Multithreading configuration
-    MAX_THREADS = 3  # Conservative number to avoid overwhelming Google Maps
+    MAX_THREADS = 2  # Conservative number to avoid overwhelming Google Maps
 
     # Counters for real-time progress tracking
     total_urls = len(urls)

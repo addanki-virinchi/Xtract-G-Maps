@@ -126,10 +126,10 @@ import subprocess
 
 # Define search terms for stationery businesses
 SEARCH_TERMS = [
-    "Stationery store",
-    "Stationery shop",
-    "School supplies store",
-    "Office supplies store",
+    # "Stationery store",
+    # "Stationery shop",
+    # "School supplies store",
+    # "Office supplies store",
     "Bookstore",
     "General store",
     "Gift shop",
@@ -270,7 +270,7 @@ def create_stable_driver():
     options.add_argument("--window-size=1920,1080")
 
     # Uncomment the next line for headless mode (recommended for virtual servers)
-    # options.add_argument("--headless")
+    options.add_argument("--headless")
 
     # User agent to avoid detection
     options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -285,9 +285,9 @@ def create_stable_driver():
         "profile.default_content_settings.popups": 0,
         "profile.managed_default_content_settings.images": 2,
     }
-    options.add_experimental_option("prefs", prefs)
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
+    # options.add_experimental_option("prefs", prefs)
+    # options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    # options.add_experimental_option('useAutomationExtension', False)
 
     # Try to create driver with retries
     max_retries = 3
