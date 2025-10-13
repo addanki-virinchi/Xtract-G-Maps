@@ -187,45 +187,79 @@ def scroll_page(driver):
 
 
 def extract_phone_number(driver, wait):
-    # Scroll the page first
-    scroll_page(driver)
-    
-    phone_xpaths = [
-        "//div[contains(@class, 'fontBodyMedium') and contains(text(), '0')]",
-        "//div[contains(@class, 'Io6YTe') and contains(text(), '0')]",
-        "//div[contains(@class, 'fontBodyMedium kR99db')]",
-        "//div[contains(@class, 'rogA2c')]//div[contains(@class, 'Io6YTe')]",
-        "//div[contains(@class, 'phone-number')]",
-        "//a[contains(@href, 'tel:')]"
-    ]
-    
-    for xpath in phone_xpaths:
-        try:
-            # Try to find the elements
-            phone_elements = driver.find_elements(By.XPATH, xpath)
-            
-            for element in phone_elements:
-                # Scroll to the element to ensure it's in view
-                driver.execute_script("arguments[0].scrollIntoView(true);", element)
-                time.sleep(0.5)
-                
-                # Extract text
-                phone_text = element.text.strip()
-                
-                # Modified regex pattern to capture longer phone numbers (using raw string)
-                phone_match = re.findall(r'(?:\+?\d{1,4}[-.\s]?)?\d{3,}[-.\s]?\d{3,}[-.\s]?\d{3,}', phone_text)
-                
-                if phone_match:
-                    # Clean the phone number but preserve the country code if present
-                    phone_number = phone_match[0]
-                    # Remove spaces and common separators but keep the plus sign if present
-                    cleaned_number = ''.join(c for c in phone_number if c.isdigit() or c == '+')
-                    return cleaned_number
-        
-        except Exception as e:
-            print(f"Error searching for phone number: {str(e)}")
-    
-    return "Phone Number Not Found"
+    """Extract phone number using exact Google Maps HTML structure"""
+    try:
+        # Scroll and wait for page to be fully loaded
+        scroll_page(driver)
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        time.sleep(1)
+
+        # Exact XPath selectors based on confirmed HTML structure
+        phone_xpaths = [
+            # Most specific - targets the exact phone div structure
+            "//div[contains(@class, 'AeaXub')]//div[contains(@class, 'Io6YTe') and contains(@class, 'fontBodyMedium') and contains(@class, 'kR99db')]",
+
+            # Parent-child relationship targeting phone container
+            "//div[contains(@class, 'rogA2c')]//div[contains(@class, 'Io6YTe') and contains(@class, 'fontBodyMedium')]",
+
+            # Class combination for phone text element
+            "//div[contains(@class, 'Io6YTe') and contains(@class, 'kR99db')]",
+
+            # Fallback for tel: links
+            "//a[contains(@href, 'tel:')]"
+        ]
+
+        for xpath in phone_xpaths:
+            try:
+                phone_elements = driver.find_elements(By.XPATH, xpath)
+
+                for element in phone_elements:
+                    try:
+                        # Scroll to element to ensure it's visible
+                        driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                        time.sleep(0.3)
+
+                        # Extract text or href for tel: links
+                        if "tel:" in xpath:
+                            phone_text = element.get_attribute("href")
+                            if phone_text and phone_text.startswith("tel:"):
+                                phone_text = phone_text.replace("tel:", "").strip()
+                        else:
+                            phone_text = element.text.strip()
+
+                        if phone_text:
+                            # Phone number regex patterns for Indian numbers
+                            phone_patterns = [
+                                r'\+91[-.\s]?\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{4}',  # +91 format with spaces
+                                r'0\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{4}',  # 0 prefix format (like 044 2522 2944)
+                                r'\d{3}[-.\s]?\d{4}[-.\s]?\d{4}',  # 3-4-4 format
+                                r'\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{4}',  # General landline format
+                                r'[6-9]\d{9}',  # 10-digit mobile format
+                                r'\+91[-.\s]?[6-9]\d{9}'  # +91 mobile format
+                            ]
+
+                            for pattern in phone_patterns:
+                                phone_matches = re.findall(pattern, phone_text)
+                                if phone_matches:
+                                    phone_number = phone_matches[0]
+                                    # Clean the phone number (keep digits and + only)
+                                    cleaned_number = ''.join(c for c in phone_number if c.isdigit() or c == '+')
+
+                                    # Validate length (Indian numbers: 10-13 digits)
+                                    digit_count = len(re.findall(r'\d', cleaned_number))
+                                    if 10 <= digit_count <= 13:
+                                        return cleaned_number
+                    except Exception:
+                        continue
+
+            except (NoSuchElementException, TimeoutException):
+                continue
+
+        return "Phone Number Not Found"
+
+    except Exception as e:
+        print(f"Error in phone extraction: {str(e)}")
+        return "Phone Number Not Found"
 
 
 def extract_store_type(driver, wait):
@@ -318,30 +352,68 @@ def extract_operating_status_and_hours(driver, wait):
                         status_text = element.text.strip()
 
                         if status_text and any(keyword in status_text.lower() for keyword in ['open', 'closed', 'closes', 'opens']):
-                            print(f"[DEBUG] Found hours text: '{status_text}' using selector: {selector}")
+                            # Enhanced parsing logic with correct business logic
+                            status_text_lower = status_text.lower()
 
-                            # Parse status and hours from the text
-                            if "open" in status_text.lower():
-                                if "open now" in status_text.lower():
+                            # CRITICAL: If operating hours exist, business is operational (status = "Open")
+                            # Only set status to "Closed" if NO operating hours are found
+
+                            # Handle "Closed ⋅ Opens 8 am" format - business is OPEN (has operating hours)
+                            if "closed" in status_text_lower and "opens" in status_text_lower:
+                                status = "Open"  # Business is operational (has hours)
+                                # Extract opening time
+                                opens_patterns = [
+                                    r'opens\s+(.+?)(?:\s+\w{3})?$',  # "Opens 8 am Tue" -> "8 am"
+                                    r'opens\s+(.+)',  # General opens pattern
+                                ]
+                                for pattern in opens_patterns:
+                                    opens_match = re.search(pattern, status_text, re.IGNORECASE)
+                                    if opens_match:
+                                        time_part = opens_match.group(1).strip()
+                                        # Remove day abbreviations (Mon, Tue, etc.)
+                                        time_part = re.sub(r'\s+\w{3}$', '', time_part).strip()
+                                        operating_hours = f"Opens {time_part}"
+                                        break
+                                # Return immediately after successful parsing
+                                return status, operating_hours
+
+                            # Handle "Open ⋅ Closes 9 pm" format - business is OPEN
+                            elif "open" in status_text_lower and "closes" in status_text_lower:
+                                if "open now" in status_text_lower:
                                     status = "Open now"
                                 else:
                                     status = "Open"
-                                # Extract closing time if available
-                                if "closes" in status_text.lower():
-                                    closes_match = re.search(r'closes\s+(.+)', status_text, re.IGNORECASE)
+                                # Extract closing time
+                                closes_patterns = [
+                                    r'closes\s+(.+?)(?:\s+\w{3})?$',  # "Closes 9 pm" -> "9 pm"
+                                    r'closes\s+(.+)',  # General closes pattern
+                                ]
+                                for pattern in closes_patterns:
+                                    closes_match = re.search(pattern, status_text, re.IGNORECASE)
                                     if closes_match:
-                                        operating_hours = f"Closes {closes_match.group(1)}"
-                            elif "closed" in status_text.lower():
-                                status = "Closed"
-                                # Extract opening time if available
-                                if "opens" in status_text.lower():
-                                    opens_match = re.search(r'opens\s+(.+)', status_text, re.IGNORECASE)
-                                    if opens_match:
-                                        operating_hours = f"Opens {opens_match.group(1)}"
+                                        time_part = closes_match.group(1).strip()
+                                        # Remove day abbreviations
+                                        time_part = re.sub(r'\s+\w{3}$', '', time_part).strip()
+                                        operating_hours = f"Closes {time_part}"
+                                        break
+                                # Return immediately after successful parsing
+                                return status, operating_hours
 
-                            # If we found status, break
-                            if status != "Not Found":
-                                break
+                            # Handle simple "Open now" or "Open" status
+                            elif "open now" in status_text_lower:
+                                status = "Open now"
+                                # Return immediately
+                                return status, operating_hours
+                            elif "open" in status_text_lower:
+                                status = "Open"
+                                # Return immediately
+                                return status, operating_hours
+
+                            # Only set to "Closed" if no operating hours are found
+                            elif "closed" in status_text_lower and "opens" not in status_text_lower:
+                                status = "Closed"
+                                # Return immediately
+                                return status, operating_hours
                     except Exception:
                         continue
 
