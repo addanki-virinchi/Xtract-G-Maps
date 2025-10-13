@@ -136,7 +136,7 @@ def append_result_to_csv(result, output_filename, write_header=False):
     try:
         with csv_lock:  # Thread-safe CSV writing
             with open(output_filename, 'a', newline='', encoding='utf-8') as file:
-                fieldnames = ['URL', 'Name', 'Address', 'Website', 'Phone', 'Latitude', 'Longitude']
+                fieldnames = ['URL', 'Name', 'Address', 'Website', 'Phone', 'Store_Type', 'Operating_Status', 'Operating_Hours', 'Rating', 'Permanently_Closed', 'Latitude', 'Longitude']
                 writer = csv.DictWriter(file, fieldnames=fieldnames)
 
                 # Write header only if this is the first write
@@ -228,18 +228,288 @@ def extract_phone_number(driver, wait):
     return "Phone Number Not Found"
 
 
+def extract_store_type(driver, wait):
+    """Extract business category/store type from Google Maps page"""
+    try:
+        # Enhanced scrolling and waiting for elements to load
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(2)
+
+        # Wait for page to be fully loaded
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        time.sleep(1)
+
+        # Try multiple selectors for store type/category (prioritized by reliability)
+        category_selectors = [
+            "//button[contains(@class, 'DkEaL')]",  # Most reliable - confirmed working
+            "//button[contains(@class, 'DkEaL') and contains(@jsaction, 'category')]",
+            "//button[contains(@jsaction, 'pane.wfvdle139.category')]",
+            "//div[contains(@class, 'LBgpqf')]//button[contains(@class, 'DkEaL')]",
+            "//span[contains(@class, 'YhemCb')]",
+            "//div[contains(@class, 'LBgpqf')]//button",
+            "//button[contains(@aria-label, 'Category')]"
+        ]
+
+        for selector in category_selectors:
+            try:
+                # Use WebDriverWait for better reliability
+                category_elements = wait.until(lambda d: d.find_elements(By.XPATH, selector))
+
+                for element in category_elements:
+                    try:
+                        # Scroll to element to ensure it's visible
+                        driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                        time.sleep(0.5)
+
+                        category_text = element.text.strip()
+                        if category_text and len(category_text) > 0:
+                            # Filter out common non-category buttons
+                            excluded_terms = ['directions', 'save', 'share', 'nearby', 'call', 'website', 'menu', 'order', 'book']
+                            if not any(term in category_text.lower() for term in excluded_terms):
+                                print(f"[DEBUG] Found store type: '{category_text}' using selector: {selector}")
+                                return category_text
+                    except Exception:
+                        continue
+
+            except (NoSuchElementException, TimeoutException):
+                continue
+
+    except Exception as e:
+        print(f"Error extracting store type: {str(e)}")
+
+    return "Not Found"
+
+
+def extract_operating_status_and_hours(driver, wait):
+    """Extract operating status and hours from Google Maps page"""
+    try:
+        status = "Not Found"
+        operating_hours = "Not Found"
+
+        # Enhanced scrolling and waiting
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+        time.sleep(2)
+
+        # Wait for page to be fully loaded
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        time.sleep(1)
+
+        # Try to find operating status with prioritized selectors (confirmed working)
+        status_selectors = [
+            "//span[contains(@class, 'ZDu9vd')]",  # Most reliable - confirmed working
+            "//div[contains(@class, 'MkV9')]//span[contains(@class, 'ZDu9vd')]",
+            "//span[contains(text(), 'Open') or contains(text(), 'Closed') or contains(text(), 'Closes')]",
+            "//div[contains(@class, 'o0Svhf')]//span",
+            "//span[contains(@class, 'ZDu9vd')]//span",
+            "//div[contains(@aria-expanded, 'true')]//span[contains(@class, 'ZDu9vd')]"
+        ]
+
+        for selector in status_selectors:
+            try:
+                # Use WebDriverWait for better reliability
+                status_elements = wait.until(lambda d: d.find_elements(By.XPATH, selector))
+
+                for element in status_elements:
+                    try:
+                        # Scroll to element to ensure it's visible
+                        driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                        time.sleep(0.5)
+
+                        status_text = element.text.strip()
+
+                        if status_text and any(keyword in status_text.lower() for keyword in ['open', 'closed', 'closes', 'opens']):
+                            print(f"[DEBUG] Found hours text: '{status_text}' using selector: {selector}")
+
+                            # Parse status and hours from the text
+                            if "open" in status_text.lower():
+                                if "open now" in status_text.lower():
+                                    status = "Open now"
+                                else:
+                                    status = "Open"
+                                # Extract closing time if available
+                                if "closes" in status_text.lower():
+                                    closes_match = re.search(r'closes\s+(.+)', status_text, re.IGNORECASE)
+                                    if closes_match:
+                                        operating_hours = f"Closes {closes_match.group(1)}"
+                            elif "closed" in status_text.lower():
+                                status = "Closed"
+                                # Extract opening time if available
+                                if "opens" in status_text.lower():
+                                    opens_match = re.search(r'opens\s+(.+)', status_text, re.IGNORECASE)
+                                    if opens_match:
+                                        operating_hours = f"Opens {opens_match.group(1)}"
+
+                            # If we found status, break
+                            if status != "Not Found":
+                                break
+                    except Exception:
+                        continue
+
+                if status != "Not Found":
+                    break
+
+            except (NoSuchElementException, TimeoutException):
+                continue
+
+        # Try to extract detailed operating hours from the hours table
+        if operating_hours == "Not Found":
+            try:
+                # Look for the hours table with multiple selectors
+                hours_selectors = [
+                    "//table[contains(@class, 'eK4R0e')]",
+                    "//div[contains(@class, 't39EBf')]//table",
+                    "//table//tr[contains(@class, 'y0skZc')]"
+                ]
+
+                for table_selector in hours_selectors:
+                    try:
+                        if "//table" in table_selector:
+                            hours_table = driver.find_element(By.XPATH, table_selector)
+                            if hours_table:
+                                # Get today's hours (first row that's not a header)
+                                today_row = hours_table.find_element(By.XPATH, ".//tr[contains(@class, 'y0skZc')][1]")
+                                if today_row:
+                                    hours_cell = today_row.find_element(By.XPATH, ".//td[contains(@class, 'mxowUb')]")
+                                    if hours_cell:
+                                        hours_text = hours_cell.text.strip()
+                                        if hours_text and ("–" in hours_text or "-" in hours_text):
+                                            operating_hours = hours_text
+                                            break
+                        else:
+                            # Direct row selector
+                            today_rows = driver.find_elements(By.XPATH, table_selector)
+                            if today_rows:
+                                for row in today_rows[:1]:  # Take first row
+                                    hours_cell = row.find_element(By.XPATH, ".//td[contains(@class, 'mxowUb')]")
+                                    if hours_cell:
+                                        hours_text = hours_cell.text.strip()
+                                        if hours_text and ("–" in hours_text or "-" in hours_text):
+                                            operating_hours = hours_text
+                                            break
+                    except (NoSuchElementException, TimeoutException):
+                        continue
+
+                    if operating_hours != "Not Found":
+                        break
+
+            except (NoSuchElementException, TimeoutException):
+                pass
+
+    except Exception as e:
+        print(f"Error extracting operating status and hours: {str(e)}")
+
+    return status, operating_hours
+
+
+def extract_rating(driver, wait):
+    """Extract rating and review count from Google Maps page"""
+    try:
+        # Enhanced scrolling and waiting for rating elements
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(2)
+
+        # Wait for page to be fully loaded
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        time.sleep(1)
+
+        # Try multiple selectors for rating (prioritized by reliability)
+        rating_selectors = [
+            "//div[contains(@class, 'F7nice')]//span[@aria-hidden='true']",  # Most reliable - confirmed working
+            "//span[contains(@class, 'ceNzKf')]/preceding-sibling::span[@aria-hidden='true']",
+            "//div[contains(@jslog, '76333')]//span[@aria-hidden='true']",
+            "//div[contains(@class, 'F7nice')]//span[1]",
+            "//span[@aria-hidden='true' and string-length(text()) <= 3]",
+            "//div[contains(@class, 'jANrlb')]//div[contains(@class, 'F7nice')]//span"
+        ]
+
+        for selector in rating_selectors:
+            try:
+                # Use WebDriverWait for better reliability
+                rating_elements = wait.until(lambda d: d.find_elements(By.XPATH, selector))
+
+                for element in rating_elements:
+                    try:
+                        # Scroll to element to ensure it's visible
+                        driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                        time.sleep(0.5)
+
+                        rating_text = element.text.strip()
+
+                        if rating_text:
+                            # Validate that it's a numeric rating
+                            if rating_text.replace('.', '').replace(',', '').isdigit():
+                                try:
+                                    rating_value = float(rating_text.replace(',', '.'))
+                                    if 0 <= rating_value <= 5:  # Valid rating range
+                                        print(f"[DEBUG] Found rating: '{rating_text}' using selector: {selector}")
+                                        return rating_text
+                                except ValueError:
+                                    continue
+
+                            # Also check for patterns like "4.5" or "5.0"
+                            rating_match = re.search(r'^([0-5](?:\.[0-9])?)$', rating_text)
+                            if rating_match:
+                                print(f"[DEBUG] Found rating (regex): '{rating_match.group(1)}' using selector: {selector}")
+                                return rating_match.group(1)
+                    except Exception:
+                        continue
+
+            except (NoSuchElementException, TimeoutException):
+                continue
+
+    except Exception as e:
+        print(f"Error extracting rating: {str(e)}")
+
+    return "Not Found"
+
+
+def extract_permanently_closed_status(driver, wait):
+    """Check if business is permanently closed"""
+    try:
+        # Look for permanently closed indicator
+        closed_selectors = [
+            "//span[contains(@class, 'aSftqf') and contains(text(), 'Permanently closed')]",
+            "//div[contains(@class, 'MkV9')]//span[contains(text(), 'Permanently closed')]",
+            "//span[contains(text(), 'Permanently closed')]"
+        ]
+
+        for selector in closed_selectors:
+            try:
+                closed_element = driver.find_element(By.XPATH, selector)
+                if closed_element and "Permanently closed" in closed_element.text:
+                    return "Yes"
+            except (NoSuchElementException, TimeoutException):
+                continue
+
+    except Exception as e:
+        print(f"Error checking permanently closed status: {str(e)}")
+
+    return "No"
+
+
 def scrape_data(url, driver, wait):
     try:
         # Navigate to the URL
         driver.get(url)
-        time.sleep(3)  # Give some time for the page to load
-        
-        # Scroll the page
+        time.sleep(8)  # Increased wait time for page to load completely
+
+        # Wait for page to be fully loaded
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        time.sleep(2)
+
+        # Scroll the page to ensure all elements are loaded
         scroll_page(driver)
-        
+        time.sleep(3)  # Additional wait after scrolling
+
+        # Additional scroll to ensure dynamic content is loaded
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(2)
+
         # Initialize variables with default values
         address = website = phone = "Not Found"
-        
+
         try:
             # Address extraction
             address_element = wait.until(EC.presence_of_element_located(
@@ -258,7 +528,7 @@ def scrape_data(url, driver, wait):
             ))
             website = website_element.get_attribute("href")
         except (TimeoutException, NoSuchElementException):
-            
+
             pass
         try:
             name_element = wait.until(EC.presence_of_element_located(
@@ -269,10 +539,14 @@ def scrape_data(url, driver, wait):
         except (TimeoutException, NoSuchElementException):
             name = "Name Not Found"
 
-       
-
         # Phone number extraction
         phone = extract_phone_number(driver, wait)
+
+        # Extract new business information
+        store_type = extract_store_type(driver, wait)
+        operating_status, operating_hours = extract_operating_status_and_hours(driver, wait)
+        rating = extract_rating(driver, wait)
+        permanently_closed = extract_permanently_closed_status(driver, wait)
 
         # Coordinate extraction from URL
         latitude, longitude = extract_coordinates_from_url(url)
@@ -283,6 +557,11 @@ def scrape_data(url, driver, wait):
             'Address': address,
             'Website': website,
             'Phone': phone,
+            'Store_Type': store_type,
+            'Operating_Status': operating_status,
+            'Operating_Hours': operating_hours,
+            'Rating': rating,
+            'Permanently_Closed': permanently_closed,
             'Latitude': latitude,
             'Longitude': longitude
         }
@@ -297,13 +576,18 @@ def scrape_data(url, driver, wait):
             'Address': 'Error',
             'Website': 'Error',
             'Phone': 'Error',
+            'Store_Type': 'Error',
+            'Operating_Status': 'Error',
+            'Operating_Hours': 'Error',
+            'Rating': 'Error',
+            'Permanently_Closed': 'Error',
             'Latitude': latitude,
             'Longitude': longitude
         }
 
 def main():
     # Check if the input CSV file exists
-    input_filename = 'Delhi_coaching.csv'
+    input_filename = 'stationery_shops_chennai_master.csv'
     if not os.path.exists(input_filename):
         print(f"Error: Input file '{input_filename}' not found!")
         print("Please make sure you have run the Google_Maps.py script first to generate the master CSV file.")
@@ -325,7 +609,7 @@ def main():
         return
 
     # Setup output file for real-time incremental writing
-    output_filename = 'Delhi_coaching_output.csv'
+    output_filename = 'stationery_shops_chennai_master_output.csv'
 
     # Check if output file already exists to determine if we need to write header
     file_exists = os.path.exists(output_filename)
@@ -371,7 +655,7 @@ def process_urls_multithreaded(urls, output_filename, file_exists):
     if not file_exists:
         try:
             with open(output_filename, 'w', newline='', encoding='utf-8') as file:
-                fieldnames = ['URL', 'Name', 'Address', 'Website', 'Phone', 'Latitude', 'Longitude']
+                fieldnames = ['URL', 'Name', 'Address', 'Website', 'Phone', 'Store_Type', 'Operating_Status', 'Operating_Hours', 'Rating', 'Permanently_Closed', 'Latitude', 'Longitude']
                 writer = csv.DictWriter(file, fieldnames=fieldnames)
                 writer.writeheader()
             print("✅ Created output file with headers")
