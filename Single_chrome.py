@@ -136,7 +136,7 @@ def append_result_to_csv(result, output_filename, write_header=False):
     try:
         with csv_lock:  # Thread-safe CSV writing
             with open(output_filename, 'a', newline='', encoding='utf-8') as file:
-                fieldnames = ['URL', 'Name', 'Address', 'Website', 'Phone', 'Store_Type', 'Operating_Status', 'Operating_Hours', 'Rating', 'Review_Count', 'Permanently_Closed', 'Latitude', 'Longitude']
+                fieldnames = ['URL', 'Name', 'Address', 'Website', 'Phone', 'Store_Type', 'Operating_Status', 'Operating_Hours', 'Rating', 'Permanently_Closed', 'Latitude', 'Longitude']
                 writer = csv.DictWriter(file, fieldnames=fieldnames)
 
                 # Write header only if this is the first write
@@ -149,8 +149,6 @@ def append_result_to_csv(result, output_filename, write_header=False):
         return True
     except Exception as e:
         print(f"Error writing to CSV: {e}")
-        import traceback
-        traceback.print_exc()
         return False
 
 def check_url_already_processed(url, output_filename):
@@ -278,19 +276,18 @@ def extract_store_type(driver, wait):
         # Try multiple selectors for store type/category (prioritized by reliability)
         category_selectors = [
             "//button[contains(@class, 'DkEaL')]",  # Most reliable - confirmed working
-            "//button[contains(@class, 'DkEaL') and contains(@jsaction, 'pane.wfvdle18.category')]",
-            "//button[contains(@jsaction, 'pane.wfvdle18.category')]",
-            "//div[contains(@class, 'fontBodyMedium')]//button[contains(@class, 'DkEaL')]",
+            "//button[contains(@class, 'DkEaL') and contains(@jsaction, 'category')]",
+            "//button[contains(@jsaction, 'pane.wfvdle139.category')]",
             "//div[contains(@class, 'LBgpqf')]//button[contains(@class, 'DkEaL')]",
             "//span[contains(@class, 'YhemCb')]",
             "//div[contains(@class, 'LBgpqf')]//button",
-            "//button[contains(@aria-label, 'Category')]",
+            "//button[contains(@aria-label, 'Category')]",       
         ]
 
         for selector in category_selectors:
             try:
-                # Find elements directly (find_elements never throws exception)
-                category_elements = driver.find_elements(By.XPATH, selector)
+                # Use WebDriverWait for better reliability
+                category_elements = wait.until(lambda d: d.find_elements(By.XPATH, selector))
 
                 for element in category_elements:
                     try:
@@ -299,12 +296,11 @@ def extract_store_type(driver, wait):
                         time.sleep(0.5)
 
                         category_text = element.text.strip()
-
                         if category_text and len(category_text) > 0:
                             # Filter out common non-category buttons
-                            # IMPORTANT: "book" should NOT be in excluded_terms as "Book store" is a valid category
-                            excluded_terms = ['directions', 'save', 'share', 'nearby', 'call', 'website', 'menu', 'order']
+                            excluded_terms = ['directions', 'save', 'share', 'nearby', 'call', 'website', 'menu', 'order', 'book']
                             if not any(term in category_text.lower() for term in excluded_terms):
+                                print(f"[DEBUG] Found store type: '{category_text}' using selector: {selector}")
                                 return category_text
                     except Exception:
                         continue
@@ -517,6 +513,7 @@ def extract_rating(driver, wait):
                                 try:
                                     rating_value = float(rating_text.replace(',', '.'))
                                     if 0 <= rating_value <= 5:  # Valid rating range
+                                        print(f"[DEBUG] Found rating: '{rating_text}' using selector: {selector}")
                                         return rating_text
                                 except ValueError:
                                     continue
@@ -524,6 +521,7 @@ def extract_rating(driver, wait):
                             # Also check for patterns like "4.5" or "5.0"
                             rating_match = re.search(r'^([0-5](?:\.[0-9])?)$', rating_text)
                             if rating_match:
+                                print(f"[DEBUG] Found rating (regex): '{rating_match.group(1)}' using selector: {selector}")
                                 return rating_match.group(1)
                     except Exception:
                         continue
@@ -535,72 +533,6 @@ def extract_rating(driver, wait):
         print(f"Error extracting rating: {str(e)}")
 
     return "Not Found"
-
-
-def extract_review_count(driver, wait):
-    """Extract review count from Google Maps page"""
-    try:
-        # Enhanced scrolling and waiting for review elements
-        driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(1)
-
-        # Wait for page to be fully loaded
-        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        time.sleep(1)
-
-        # Try multiple selectors for review count (prioritized by reliability)
-        review_selectors = [
-            "//span[contains(@aria-label, 'review')]",  # Most reliable - targets aria-label with "review"
-            "//div[contains(@class, 'F7nice')]//span[contains(@aria-label, 'review')]",  # Within rating section
-            "//span[contains(@aria-label, 'reviews')]",  # Plural form
-            "//span[contains(@aria-label, 'review') and contains(text(), '(')]",  # With parentheses
-            "//div[contains(@jslog, '76333')]//span[contains(@aria-label, 'review')]"  # Within rating container
-        ]
-
-        for selector in review_selectors:
-            try:
-                # Find elements directly (find_elements never throws exception)
-                review_elements = driver.find_elements(By.XPATH, selector)
-
-                for element in review_elements:
-                    try:
-                        # Scroll to element to ensure it's visible
-                        driver.execute_script("arguments[0].scrollIntoView(true);", element)
-                        time.sleep(0.3)
-
-                        # Extract aria-label attribute
-                        aria_label = element.get_attribute("aria-label")
-
-                        if aria_label:
-                            # Extract number from aria-label like "40 reviews" or "1 review"
-                            review_match = re.search(r'(\d+)\s+reviews?', aria_label)
-                            if review_match:
-                                review_count = review_match.group(1)
-                                # Validate that it's a numeric value
-                                if review_count.isdigit():
-                                    return review_count
-
-                        # Also try extracting from visible text in parentheses
-                        review_text = element.text.strip()
-                        if review_text:
-                            # Extract number from text like "(40)" or "(150)"
-                            text_match = re.search(r'\((\d+)\)', review_text)
-                            if text_match:
-                                review_count = text_match.group(1)
-                                if review_count.isdigit():
-                                    return review_count
-
-                    except Exception:
-                        continue
-
-            except (NoSuchElementException, TimeoutException):
-                continue
-
-        return "Not Found"
-
-    except Exception as e:
-        print(f"Error extracting review count: {str(e)}")
-        return "Not Found"
 
 
 def extract_permanently_closed_status(driver, wait):
@@ -686,7 +618,6 @@ def scrape_data(url, driver, wait):
         store_type = extract_store_type(driver, wait)
         operating_status, operating_hours = extract_operating_status_and_hours(driver, wait)
         rating = extract_rating(driver, wait)
-        review_count = extract_review_count(driver, wait)
         permanently_closed = extract_permanently_closed_status(driver, wait)
 
         # Coordinate extraction from URL
@@ -702,7 +633,6 @@ def scrape_data(url, driver, wait):
             'Operating_Status': operating_status,
             'Operating_Hours': operating_hours,
             'Rating': rating,
-            'Review_Count': review_count,
             'Permanently_Closed': permanently_closed,
             'Latitude': latitude,
             'Longitude': longitude
@@ -722,7 +652,6 @@ def scrape_data(url, driver, wait):
             'Operating_Status': 'Error',
             'Operating_Hours': 'Error',
             'Rating': 'Error',
-            'Review_Count': 'Error',
             'Permanently_Closed': 'Error',
             'Latitude': latitude,
             'Longitude': longitude
@@ -730,7 +659,7 @@ def scrape_data(url, driver, wait):
 
 def main():
     # Check if the input CSV file exists
-    input_filename = 'dump.csv'
+    input_filename = 'stationery_shops_chennai_master.csv'
     if not os.path.exists(input_filename):
         print(f"Error: Input file '{input_filename}' not found!")
         print("Please make sure you have run the Google_Maps.py script first to generate the master CSV file.")
@@ -752,7 +681,7 @@ def main():
         return
 
     # Setup output file for real-time incremental writing
-    output_filename = 'dump_output.csv'
+    output_filename = 'stationery_shops_chennai_master_output.csv'
 
     # Check if output file already exists to determine if we need to write header
     file_exists = os.path.exists(output_filename)
@@ -798,7 +727,7 @@ def process_urls_multithreaded(urls, output_filename, file_exists):
     if not file_exists:
         try:
             with open(output_filename, 'w', newline='', encoding='utf-8') as file:
-                fieldnames = ['URL', 'Name', 'Address', 'Website', 'Phone', 'Store_Type', 'Operating_Status', 'Operating_Hours', 'Rating', 'Review_Count', 'Permanently_Closed', 'Latitude', 'Longitude']
+                fieldnames = ['URL', 'Name', 'Address', 'Website', 'Phone', 'Store_Type', 'Operating_Status', 'Operating_Hours', 'Rating', 'Permanently_Closed', 'Latitude', 'Longitude']
                 writer = csv.DictWriter(file, fieldnames=fieldnames)
                 writer.writeheader()
             print("✅ Created output file with headers")

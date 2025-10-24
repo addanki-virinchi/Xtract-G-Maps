@@ -309,7 +309,7 @@ def create_stable_driver():
     options.add_argument("--window-size=1920,1080")
 
     # Uncomment the next line for headless mode (recommended for virtual servers)
-    options.add_argument("--headless")
+   # options.add_argument("--headless")
 
     # User agent to avoid detection
     options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -360,7 +360,7 @@ def scroll_google_maps_single_search(search_term, pincode):
         driver = create_stable_driver()
 
         # Create search query with pincode
-        search_query = f"{search_term} {pincode}"
+        search_query = f'"{search_term} {pincode}"'
         encoded_query = search_query.replace(" ", "+")
 
         # Construct Google Maps URL for Chennai area
