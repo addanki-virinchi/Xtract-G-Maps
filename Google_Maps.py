@@ -162,6 +162,26 @@ SEARCH_TERMS = [
 #     "600016", "600017", "600018", "600019", "600020"
 # ]
 CHENNAI_PINCODES = [
+    "600001",
+    "600002",
+    "600003",
+    "600004",
+    "600005",
+    "600006",
+    "600007",
+    "600008",
+    "600009",
+    "600010",
+    "600011",
+    "600012",
+    "600013",
+    "600014",
+    "600015",
+    "600016",
+    "600017",
+    "600018",
+    "600019",
+    "600020",
     "600021",
     "600022",
     "600023",
@@ -352,6 +372,7 @@ def create_stable_driver():
 def scroll_google_maps_single_search(search_term, pincode):
     """
     Scrape Google Maps for a single search term and pincode combination
+    Uses interactive search method instead of URL-based approach
     """
     driver = None
     all_data = []
@@ -360,21 +381,39 @@ def scroll_google_maps_single_search(search_term, pincode):
         driver = create_stable_driver()
 
         # Create search query with pincode
-        search_query = f'"{search_term} {pincode}"'
-        encoded_query = search_query.replace(" ", "+")
-
-        # Construct Google Maps URL for Chennai area
-        maps_url = f"https://www.google.com/maps/search/{encoded_query}/@12.8850351,79.835029,9.74z?entry=ttu&g_ep=EgoyMDI1MDgzMC4wIKXMDSoASAFQAw%3D%3D"
+        search_query = f"{search_term} {pincode}"
 
         print(f"Searching for: {search_query}")
-        print(f"URL: {maps_url}")
 
-        # Navigate to Google Maps
+        # Navigate to base Google Maps URL
+        maps_url = "https://www.google.com/maps/"
+        print(f"Opening Google Maps: {maps_url}")
         driver.get(maps_url)
 
-        # Wait for initial load with better timing
+        # Wait for page to load
         print("Loading Google Maps...")
-        time.sleep(8)
+        time.sleep(3)
+
+        # Wait for search box to be present
+        print("Waiting for search box to load...")
+        wait = WebDriverWait(driver, 15)
+        search_box = wait.until(EC.presence_of_element_located((By.ID, "searchboxinput")))
+        print("✓ Search box found")
+
+        # Clear and enter search query
+        print(f"Entering search query: {search_query}")
+        search_box.clear()
+        search_box.send_keys(search_query)
+        time.sleep(1)
+
+        # Click search button
+        print("Clicking search button...")
+        search_button = driver.find_element(By.ID, "searchbox-searchbutton")
+        search_button.click()
+
+        # Wait for results to load
+        print("Waiting for search results to load...")
+        time.sleep(5)
 
         # Click the first result to open the results panel with timeout
         print("Clicking first result to open results panel...")
