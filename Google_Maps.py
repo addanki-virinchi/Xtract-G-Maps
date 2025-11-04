@@ -403,7 +403,7 @@ def scroll_google_maps_single_search(search_term, pincode):
         # Clear and enter search query
         print(f"Entering search query: {search_query}")
         search_box.clear()
-        search_box.send_keys(search_query)
+        search_box.send_keys(f"{'search_query'}")
         time.sleep(1)
 
         # Click search button
