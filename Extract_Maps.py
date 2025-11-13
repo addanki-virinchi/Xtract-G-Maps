@@ -730,7 +730,7 @@ def scrape_data(url, driver, wait):
 
 def main():
     # Check if the input CSV file exists
-    input_filename = 'dump.csv'
+    input_filename = 'stationery_shops_chennai_master_1.csv'
     if not os.path.exists(input_filename):
         print(f"Error: Input file '{input_filename}' not found!")
         print("Please make sure you have run the Google_Maps.py script first to generate the master CSV file.")
@@ -752,7 +752,7 @@ def main():
         return
 
     # Setup output file for real-time incremental writing
-    output_filename = 'dump_output.csv'
+    output_filename = 'stationery_shops_chennai_master_output.csv'
 
     # Check if output file already exists to determine if we need to write header
     file_exists = os.path.exists(output_filename)
@@ -886,7 +886,7 @@ def create_chrome_driver(thread_id=0):
         #options.add_argument('--disable-blink-features=AutomationControlled')
         #options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--no-sandbox')
-        #options.add_argument('--headless')
+        options.add_argument('--headless')
         options.add_argument('--disable-gpu')
         options.add_argument('--disable-extensions')
         #options.add_argument('--disable-plugins')
